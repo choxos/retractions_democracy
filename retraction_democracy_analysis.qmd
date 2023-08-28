@@ -1,0 +1,713 @@
+---
+title: "The relationship between scientific publishing retractions and democracy: An ecological analysis"
+author: "Ahmad Sofi-Mahmudi"
+format: 
+  #pdf:
+  #  toc: true
+  #  number-sections: true
+  #  colorlinks: true
+        html:
+                toc: true
+                toc-expand: false
+                html-math-method: katex
+editor: visual
+---
+
+# Aim
+
+To determine the relationship between the number of retracted papers and the level of democracy and affecting factors.
+
+# Preparing the data
+
+## Variables
+
+The variables have come from various sources, as follows:
+
++----------------------------------------+-------------------------------------------------------------------------------------------------------------------------------------+--------------------------------------------------------------------------------------------------------+
+| Variable                               | Definition                                                                                                                          | Data source                                                                                            |
++========================================+=====================================================================================================================================+========================================================================================================+
+| Retractions                            | The number of retracted articles                                                                                                    | The Retraction Watch Database: <http://retractiondatabase.org/>                                        |
++----------------------------------------+-------------------------------------------------------------------------------------------------------------------------------------+--------------------------------------------------------------------------------------------------------+
+| Democracy                              | The level of democracy in the country, with a score range of 0 to 10, higher values indicating better democratic settings           | Democracy Index by the Economist Intelligence Unit (EIU): <https://www.eiu.com/topic/democracy-index/> |
++----------------------------------------+-------------------------------------------------------------------------------------------------------------------------------------+--------------------------------------------------------------------------------------------------------+
+| Published papers                       | The number of all published papers for each country                                                                                 | SCImago Journal & Country Rank: <https://www.scimagojr.com/countryrank.php>                            |
++----------------------------------------+-------------------------------------------------------------------------------------------------------------------------------------+--------------------------------------------------------------------------------------------------------+
+| Campaigns                              | The number of non-violent mass campaigns                                                                                            | NAVCO: <https://dataverse.harvard.edu/dataset.xhtml?persistentId=doi:10.7910/DVN/ON9XND>               |
+|                                        |                                                                                                                                     |                                                                                                        |
+|                                        |                                                                                                                                     | \                                                                                                      |
+|                                        |                                                                                                                                     |                                                                                                        |
+|                                        |                                                                                                                                     | Reference (3)                                                                                          |
++----------------------------------------+-------------------------------------------------------------------------------------------------------------------------------------+--------------------------------------------------------------------------------------------------------+
+| GDP per capita                         | The total output created through the production of goods and services in a country during a certain period.                         | The World Bank: <https://data.worldbank.org/indicator/NY.GDP.PCAP.CD>                                  |
++----------------------------------------+-------------------------------------------------------------------------------------------------------------------------------------+--------------------------------------------------------------------------------------------------------+
+| HDI                                    | Country's social and economic development.                                                                                          | UNDP: <https://hdr.undp.org/data-center/human-development-index#/indicies/HDI>                         |
++----------------------------------------+-------------------------------------------------------------------------------------------------------------------------------------+--------------------------------------------------------------------------------------------------------+
+| Industry's share of economy in percent | Share of manufacturing in gross domestic product                                                                                    | The World Bank:                                                                                        |
+|                                        |                                                                                                                                     |                                                                                                        |
+|                                        |                                                                                                                                     | <https://databank.worldbank.org/source/world-development-indicators>                                   |
++----------------------------------------+-------------------------------------------------------------------------------------------------------------------------------------+--------------------------------------------------------------------------------------------------------+
+| Length of executive tenure             | As a measure of political (in)stability.                                                                                            | Archigos:                                                                                              |
+|                                        |                                                                                                                                     |                                                                                                        |
+|                                        |                                                                                                                                     | <http://ksgleditsch.com/archigos.html>                                                                 |
+|                                        |                                                                                                                                     |                                                                                                        |
+|                                        |                                                                                                                                     | \                                                                                                      |
+|                                        |                                                                                                                                     |                                                                                                        |
+|                                        |                                                                                                                                     | Reference (4)                                                                                          |
++----------------------------------------+-------------------------------------------------------------------------------------------------------------------------------------+--------------------------------------------------------------------------------------------------------+
+| Location                               | The continent that each country is located at.                                                                                      | United Nations geoscheme:                                                                              |
+|                                        |                                                                                                                                     |                                                                                                        |
+|                                        |                                                                                                                                     | <https://unstats.un.org/unsd/methodology/m49/>                                                         |
++----------------------------------------+-------------------------------------------------------------------------------------------------------------------------------------+--------------------------------------------------------------------------------------------------------+
+| Muslim share of population             | Estimated proportion of each country that is recognized to be Muslim.                                                               | Reference (5)                                                                                          |
++----------------------------------------+-------------------------------------------------------------------------------------------------------------------------------------+--------------------------------------------------------------------------------------------------------+
+| The number of top universities         | Among 1,000 top universities, based on the Academic Ranking of World Universities (ARWU) -- commonly known as the Shanghai Ranking. | Shanghai Ranking:                                                                                      |
+|                                        |                                                                                                                                     |                                                                                                        |
+|                                        |                                                                                                                                     | <https://www.shanghairanking.com/rankings/arwu/2022>                                                   |
++----------------------------------------+-------------------------------------------------------------------------------------------------------------------------------------+--------------------------------------------------------------------------------------------------------+
+| Plurality/majority system              | Whether the political system is plural or not.                                                                                      | <https://havardhegre.net/iaep/>                                                                        |
+|                                        |                                                                                                                                     |                                                                                                        |
+|                                        |                                                                                                                                     | \                                                                                                      |
+|                                        |                                                                                                                                     |                                                                                                        |
+|                                        |                                                                                                                                     | Reference (6)                                                                                          |
++----------------------------------------+-------------------------------------------------------------------------------------------------------------------------------------+--------------------------------------------------------------------------------------------------------+
+
+: Data sources for each of the variables
+
+I have stored the cleaned version of all these variables in the *retractions.csv* file. For the dependent variable, I assign 0 to all those countries that were not listed in the Retraction Watch Database. As these countries are almost entirely small countries with low research output, I am also creating a zero-truncated dataset including exclusively countries with at least one retraction.
+
+To perform a sensitivity analysis, it is better to have an outlier-removed dataset.
+
+First, loading the needed packages:
+
+```{r}
+pacman::p_load(dplyr,
+               ggplot2,
+               knitr,
+               car,
+               mice,
+               gamlss,
+               broom.mixed,
+               miceadds,
+               rnaturalearth,
+               maps,
+               ggpubr)
+```
+
+And then, loading the datasets:
+
+```{r}
+retractions = read.csv("data/retractions_democracy_data.csv")
+
+# Factoring and releveling regions
+retractions$region = relevel(as.factor(retractions$region), ref = 3)
+
+# Factoring two other variables
+retractions$ongoing_nonviolent_campaign = as.factor(retractions$ongoing_nonviolent_campaign)
+
+retractions$plurality = as.factor(retractions$plurality)
+
+
+retractions$Income.Group. = NULL
+```
+
+Now, creating the zero-truncated dataset:
+
+```{r}
+trunc_retraction = subset(retractions, retractions!=0)
+```
+
+And outlier-removed one:
+
+```{r}
+Q1 = quantile(retractions$retractions, 0.25)
+Q3 = quantile(retractions$retractions, 0.75)
+IQR = IQR(retractions$retractions)
+
+no_out_retraction = subset(retractions, retractions > (Q1 - 1.5*IQR) & retractions < (Q3 + 1.5*IQR))
+```
+
+Let us take a quick look at the first rows of the main dataset:
+
+```{r}
+kable(head(retractions))
+```
+
+## A quick look at the data
+
+First, box plots:
+
+```{r}
+boxplot(log1p(retractions$retractions/retractions$citabledocuments_1996_2021*10000), 
+        ylab = "Retractions per 10K paper (log1p)")
+
+boxplot(retractions$mean_democracy_2008_2021, 
+        ylab = "Mean Democracy Index score")
+```
+
+Histograms:
+
+```{r}
+hist(log1p(retractions$retractions/retractions$citabledocuments_1996_2021*10000),
+        ylab = "Retractions per 10K paper (log1p)", 
+     breaks = 32)
+
+hist(retractions$mean_democracy_2008_2021,
+        ylab = "Mean Democracy Index score", 
+     breaks = 32)
+```
+
+And now scatterplot:
+
+```{r}
+ggplot(retractions) +
+    aes(x = mean_democracy_2008_2021, y = log1p(retractions/citabledocuments_1996_2021*10000)) + 
+    geom_point() +  
+    labs(title = "Retractions per 10K paper (log1p) ~ Mean Democracy Index score",
+         x = "Mean Democracy Index score",
+         y = "Retractions per 10K paper (log1p)") +
+    geom_smooth(method = "loess", se = T) + theme_bw()
+
+# tiff("Figure 1.tiff", width = 6, height = 3.73, units = "in", res = 300)
+```
+
+We can see that there is a negative relationship between the two variables. We will explore this relationship further.
+
+Let's also create world heat maps:
+
+```{r}
+# Loading the world map
+world_map = map_data("world")
+world_map = subset(world_map, region != "Antarctica")
+
+# Some modifications are needed
+retractions$country_20230124[retractions$country_20230124 == "United States"] = "USA"
+retractions$country_20230124[retractions$country_20230124 == "United Kingdom"] = "UK"
+retractions$country_20230124[retractions$country_20230124 == "Russian Federation"] = "Russia"
+retractions$country_20230124[retractions$country_20230124 == "Republic of the Congo"] = "Republic of Congo"
+retractions[35, 1] <- "Ivory Coast"
+
+
+
+# Drawing the map
+map1 = ggplot(retractions) +
+  geom_map(
+    dat = world_map, map = world_map, aes(map_id = region),
+    fill = "white", color = "#7f7f7f", size = 0.25
+  ) +
+  geom_map(map = world_map, aes(map_id = country_20230124, fill = log1p(retractions/citabledocuments_1996_2021*10000)), size = 0.25) +
+  scale_fill_gradient(low = "white", high = "red", name = "Retractions per 10K paper (log1p)") +
+  expand_limits(x = world_map$long, y = world_map$lat) + theme(legend.position="bottom",
+        axis.line=element_blank(),
+        axis.text=element_blank(),
+        axis.ticks=element_blank(),
+        axis.title=element_blank(),
+        panel.background=element_blank(),
+        panel.border=element_blank(),
+        panel.grid=element_blank())
+
+map2 = ggplot(retractions) +
+  geom_map(
+    dat = world_map, map = world_map, aes(map_id = region),
+    fill = "white", color = "#7f7f7f", size = 0.25
+  ) +
+  geom_map(map = world_map, aes(map_id = country_20230124, fill = mean_democracy_2008_2021), size = 0.25) +
+  scale_fill_gradient(low = "white", high = "green", name = "Mean Democracy Index score") +
+  expand_limits(x = world_map$long, y = world_map$lat) + theme(legend.position="bottom",
+        axis.line=element_blank(),
+        axis.text=element_blank(),
+        axis.ticks=element_blank(),
+        axis.title=element_blank(),
+        panel.background=element_blank(),
+        panel.border=element_blank(),
+        panel.grid=element_blank())
+
+figure = ggarrange(map1, map2,
+                    ncol = 1, nrow = 2, vjust = 1, 
+                    align = "hv", common.legend = F, legend = "bottom")
+
+# tiff("Figure 1.tiff", width = 10, height = 10, units = "in", res = 300)
+figure
+#dev.off()
+```
+
+## Missing values
+
+This dataset has many missing values. Let us see their percentage for each variables in both datasets:
+
+In the main dataset:
+
+```{r}
+p_missing = unlist(lapply(retractions, function(x) sum(is.na(x))))/nrow(retractions)
+
+kable(sort(p_missing[p_missing > 0], decreasing = TRUE)*100)
+```
+
+And in the zero-truncated one:
+
+```{r}
+p_missing_trunc = unlist(lapply(trunc_retraction, function(x) sum(is.na(x))))/nrow(retractions)
+
+kable(sort(p_missing_trunc[p_missing_trunc > 0], decreasing = TRUE)*100)
+```
+
+As we can see, there are many missing values, especially in the main dataset. Therefore, I performed multiple imputation for both datasets.
+
+## Multicollinearity
+
+One problem that may arise in the process of both multiple imputation and regression analysis is high multicollinearity between the variables. Our variables are chosen based on the proposed DAG; however, we should investigate whether there are highly multicollinear variables. To do so, we run a linear regression model and assess the variance inflation factor of the covariates:
+
+```{r}
+model_multi = lm(retractions~mean_democracy_2008_2021+ongoing_nonviolent_campaign+region+GDP_pc_mean_1960_2022+HDI_mean_1990_2021+industry_share_mean_1960_2022+length_of_last_leader_tenure_2015+muslim_proportion+top_universities_shanghai_2022+plurality, data = retractions)
+
+# Checking VIF:
+kable(vif(model_multi))
+```
+
+As you can see, HDI, GDP, region, and democracy score are (almost) highly collinear. Removing HDI will almost solve this problem:
+
+```{r}
+model_multi = lm(retractions~mean_democracy_2008_2021+ongoing_nonviolent_campaign+region+GDP_pc_mean_1960_2022+industry_share_mean_1960_2022+length_of_last_leader_tenure_2015+muslim_proportion+top_universities_shanghai_2022+plurality, data = retractions)
+
+# Checking VIF:
+kable(vif(model_multi))
+```
+
+## Multiple imputation
+
+Now, we run multiple imputation using *mice* package for both datasets.
+
+First, we rule out variables that cause problems in the imputation procedure. To do so, we should specify imputation methods manually.
+
+```{r}
+# We run the mice code with 0 iterations 
+imp = mice(retractions, maxit=0)
+
+# Extract predictorMatrix and methods of imputation 
+predM = imp$predictorMatrix
+meth = imp$method
+
+# Setting values of variables I'd like to leave out to 0 in the predictor matrix
+predM[, c("country_20230124")] = 0
+predM[, c("ISO")] = 0
+predM[, c("region")] = 0
+predM[, c("subregion")] = 0
+predM[, c("retractions")] = 0
+predM[, c("citabledocuments_1996_2021")] = 0
+predM[, c("HDI_mean_1990_2021")] = 0
+
+# If you like, view the first few rows of the predictor matrix
+# head(predM)
+```
+
+We will create 20 datasets, each with 50 iterations.
+
+```{r, cache=TRUE}
+imp = mice(retractions, m = 20, maxit = 50, 
+             predictorMatrix = predM, 
+             method = meth, print =  F, seed = 1280)
+
+
+trunc_imp = mice(trunc_retraction, m = 20, maxit = 50, 
+            predictorMatrix = predM, 
+            method = meth, print =  F, seed = 1280)
+
+no_out_imp = mice(no_out_retraction, m = 20, maxit = 50, 
+            predictorMatrix = predM, 
+            method = meth, print =  F, seed = 1280)
+```
+
+All set. Now, we move on to the analysis part.
+
+# Analysis
+
+Since the number of retracted papers is a "count data", I used Poisson family regressions. Because of the different sample size for the number of all papers for each country, I used the number of citable documents as "offset". I also performed linear regression with the proportion of retractions as the dependent variable. Following codes show the results of both regression families for all three datasets.
+
+## Poisson family regression
+
+Poisson regression uses Poisson distribution. This distribution is discrete with a single parameter, the mean, which is usually symbolized as either λ or μ. The mean is also understood as a rate parameter. It is the expected number of times that an item or event occurs per unit of time, area, or volume.
+
+In the Poisson distribution, the mean and variance are identical, or at least nearly the same; i.e., Poisson distributions with higher mean values have correspondingly greater variability. This criterion of the Poisson distribution is referred to as the equidispersion criterion. The problem is that when modelling real data, the equidispersion criterion is rarely satisfied. Analysts usually must adjust their Poisson model in some way to account for any under- or overdispersion that is in the data.
+
+Simply put, Poisson overdispersion occurs in data where the variability of the data is greater than the mean. A model that fails to properly adjust for overdispersed data is called an overdispersed model. As such, its standard errors are biased and cannot be trusted. Therefore, some other models have been proposed to consider overdispersion. All these models are based on the original Poisson model. These models are: 1) linear negative binomial (NB1), 2) standard negative binomial (NB2), 3) Poisson inverse Gaussian (PIG), 4) generalized negative binomial (NB-P), and 5) generalized Poisson (GP). The mean-variance relationship for each of these models is illustrated in Table below.
+
++--------------------------------------+--------------+--------------------------------------+
+| Model                                | Mean         | Variance                             |
++======================================+==============+======================================+
+| Poisson                              | μ            | μ                                    |
++--------------------------------------+--------------+--------------------------------------+
+| Negative binomial (NB1)              | μ            | μ(1 + α) = μ + αμ                    |
++--------------------------------------+--------------+--------------------------------------+
+| Negative binomial (NB2)              | μ            | μ(1 + αμ) = μ + αμ^2^                |
++--------------------------------------+--------------+--------------------------------------+
+| Poisson inverse Gaussian (PIG)       | μ            | μ(1+ αμ^2^) = μ + αμ^3^              |
++--------------------------------------+--------------+--------------------------------------+
+| Generalized negative binomial (NB-P) | μ            | μ(1+ αμ^ρ^) = μ + αμ^ρ^              |
++--------------------------------------+--------------+--------------------------------------+
+| Generalized Poisson                  | μ            | μ(1 + αμ)^2^ = μ + 2αμ^3^ + α^2^μ^3^ |
++--------------------------------------+--------------+--------------------------------------+
+
+: Poisson regression family
+
+### Main dataset
+
+In our data, retractions' mean and variance are not identical (mean=180.4, variance=1553568.0, Pearson χ^2^ dispersion statistic=8302.9):
+
+```{r}
+c(mean(retractions$retractions, na.rm = T), var(retractions$retractions, na.rm = T))
+```
+
+```{r}
+pois_model = glm(retractions~mean_democracy_2008_2021,
+            data = retractions,
+            family = poisson(link = "log"),
+            offset = log(citabledocuments_1996_2021))
+
+sum(residuals(pois_model, type="pearson")^2)
+```
+
+Therefore, our dependent variable is overdispersed. To compensate for that, we should use other members of the family. We start with NB2.
+
+#### Negative binomial type 2 (NB2)
+
+```{r,cache=TRUE}
+fitimp_nb_uni = with(data = imp, gamlss(retractions~mean_democracy_2008_2021+offset(log(citabledocuments_1996_2021)), family = "NBII", trace = F))
+
+kable(summary(pool(fitimp_nb_uni)))
+```
+
+This model shows that with each 1 unit increase in the number of retractions, the mean democracy score decreases by a factor of exp(-0.297)=0.743 (*P\<*0.001).
+
+NB2 model seems to have a better fit. Let's take a look at the AIC:
+
+```{r}
+mean(sapply(fitimp_nb_uni$analyses, AIC))
+```
+
+The AIC is also acceptable (1722.3). What about dispersion statistics?
+
+```{r}
+sum(residuals(fitimp_nb_uni$analyses[[1]], type="simple")^2)/fitimp_nb_uni$analyses[[1]]$df.residual
+```
+
+I just used the first imputated dataset and it seems we have overdispersion.
+
+Let's try PIG model:
+
+#### **Poisson inverse Gaussian (PIG)**
+
+```{r,cache=TRUE,warning=FALSE}
+fitimp_pig_uni = with(data = imp, gamlss(retractions~mean_democracy_2008_2021+offset(log(citabledocuments_1996_2021)), family = "PIG", trace = F))
+
+kable(summary(pool(fitimp_pig_uni)))
+```
+
+This model shows that with each 1 unit increase in the number of retractions, the mean democracy score decreases by a factor of exp(-0.120)=0.887 (*P\<*0.001).
+
+Let's assess AIC:
+
+```{r}
+mean(sapply(fitimp_pig_uni$analyses, AIC))
+```
+
+The AIC (1473.5) is lower than the NB2 model. And now dispersion statistics:
+
+```{r}
+sum(residuals(fitimp_pig_uni$analyses[[1]], type="simple")^2)/fitimp_pig_uni$analyses[[1]]$df.residual
+```
+
+It seems we have complete equidispersion. To be sure about this choice, let's perform a log likelihood ratio test:
+
+```{r}
+pchisq(2 * (mean(sapply(fitimp_pig_uni$analyses, logLik)) - mean(sapply(fitimp_nb_uni$analyses, logLik))), df = 1, lower.tail = FALSE)
+```
+
+The test confirms that PIG model is better fitted with the data compared with the NB2 model. Therefore, we proceed with the PIG model. In order not to make the model more complex, I do not investigate the fitness of other members of the Poisson family (and there is no need to do so).
+
+Now, let's perform adjusted PIG regression:
+
+```{r}
+fitimp_pig_multi = with(data = imp, gamlss(retractions~mean_democracy_2008_2021+offset(log(citabledocuments_1996_2021))+ongoing_nonviolent_campaign+GDP_pc_mean_1960_2022+region+industry_share_mean_1960_2022+length_of_last_leader_tenure_2015+muslim_proportion+top_universities_shanghai_2022+plurality, family = PIG, trace = F))
+
+kable(summary(pool(fitimp_pig_multi)))
+```
+
+In this model, mean democracy score decreases by a factor of exp(-0.045)=0.956 (*P*=0.630) with each 1 unit increase in the number of retracted papers.
+
+### Zero-truncated dataset
+
+For this dataset, I only run the PIG regression models.
+
+#### **Poisson inverse Gaussian (PIG)**
+
+```{r,cache=TRUE,warning=FALSE}
+fit_truncimp_pig_uni = with(data = trunc_imp, gamlss(retractions~mean_democracy_2008_2021+offset(log(citabledocuments_1996_2021)), family = "PIG", trace = F))
+
+kable(summary(pool(fit_truncimp_pig_uni)))
+```
+
+This model shows that with each 1 unit increase in the number of retractions, the mean democracy score decreases by a factor of exp(-0.114)=0.892 (*P*=0.002) (compared with exp(-0.120)=0.887 in main dataset).
+
+Let's assess AIC:
+
+```{r}
+mean(sapply(fit_truncimp_pig_uni$analyses, AIC))
+```
+
+The AIC is 1418.3. And now dispersion statistics:
+
+```{r}
+sum(residuals(fit_truncimp_pig_uni$analyses[[1]], type="simple")^2)/fit_truncimp_pig_uni$analyses[[1]]$df.residual
+```
+
+It seems we have underdispersion which seems accepatble.
+
+Now, let's perform adjusted PIG regression:
+
+```{r}
+fit_truncimp_pig_multi = with(data = trunc_imp, gamlss(retractions~mean_democracy_2008_2021+offset(log(citabledocuments_1996_2021))+ongoing_nonviolent_campaign+GDP_pc_mean_1960_2022+region+industry_share_mean_1960_2022+length_of_last_leader_tenure_2015+muslim_proportion+top_universities_shanghai_2022+plurality, family = PIG, trace = F))
+
+kable(summary(pool(fit_truncimp_pig_multi)))
+```
+
+In this model, mean democracy score decreases by a factor of exp(-0.112)=0.894 (compared with exp(-0.045)=0.956 from the main dataset) with each 1 unit increase in the number of retracted papers.
+
+### Outlier-removed dataset
+
+Also for this dataset, I only run the PIG regression models.
+
+#### **Poisson inverse Gaussian (PIG)**
+
+```{r,cache=TRUE,warning=FALSE}
+fit_nooutimp_pig_uni = with(data = no_out_imp, gamlss(retractions~mean_democracy_2008_2021+offset(log(citabledocuments_1996_2021)), family = "PIG", trace = F))
+
+kable(summary(pool(fit_nooutimp_pig_uni)))
+```
+
+This model shows that with each 1 unit increase in the number of retractions, the mean democracy score decreases by a factor of exp(-0.112)=0.894 (*P*=0.014) (compared with exp(-0.120)=0.887 in the main dataset).
+
+Let's assess AIC:
+
+```{r}
+mean(sapply(fit_nooutimp_pig_uni$analyses, AIC))
+```
+
+The AIC is 912.5. And now dispersion statistics:
+
+```{r}
+sum(residuals(fit_nooutimp_pig_uni$analyses[[1]], type="simple")^2)/fit_nooutimp_pig_uni$analyses[[1]]$df.residual
+```
+
+It seems we have overdispersion which seems accepatble.
+
+Now, let's perform adjusted PIG regression:
+
+```{r}
+fit_nooutimp_pig_multi = with(data = no_out_imp, gamlss(retractions~mean_democracy_2008_2021+offset(log(citabledocuments_1996_2021))+ongoing_nonviolent_campaign+GDP_pc_mean_1960_2022+region+industry_share_mean_1960_2022+length_of_last_leader_tenure_2015+muslim_proportion+top_universities_shanghai_2022+plurality, family = PIG, trace = F))
+
+kable(summary(pool(fit_nooutimp_pig_multi)))
+```
+
+In this model, mean democracy score decreases by a factor of exp(-0.030)=0.970 (compared with exp(-0.045)=0.956 from the main dataset) with each 1 unit increase in the number of retracted papers.
+
+## Linear regression
+
+For this part, I used the number of retractions per 10K articles.
+
+### Main dataset
+
+```{r}
+full.impdata = complete(imp, 'long', include = TRUE) %>%
+  mutate(retraction_prop = retractions/citabledocuments_1996_2021*10000)
+
+new_imp = as.mids(full.impdata)
+```
+
+Let's run the model and assess its fitness:
+
+```{r}
+fitimp_linear_uni = with(data = new_imp,
+               lm(retraction_prop~mean_democracy_2008_2021))
+
+kable(summary(pool(fitimp_linear_uni)))
+```
+
+This model shows with each 1 unit increase in democracy score, the number of retracted papers per 10K article decreases by 0.457 unit.
+
+Now, let's check the model fitness:
+
+```{r}
+kable(mi.anova(mi.res=new_imp, formula="retraction_prop~mean_democracy_2008_2021"))
+```
+
+As we can see, the model fitness seems not to be good enough with R-squared of 0.002. Let's confirm this by exploring the plots:
+
+```{r}
+plot(fitimp_linear_uni$analyses[[1]])
+```
+
+We can clearly see the signs of non-normality of the residuals. We have two other options: using the log or using square-root of the dependent variable. Let's start with square-root:
+
+#### Square-root method
+
+```{r}
+kable(mi.anova(mi.res=new_imp, formula="sqrt(retraction_prop)~mean_democracy_2008_2021"))
+```
+
+```{r}
+fitimp_linear_uni_sqrt = with(data = new_imp,
+               lm(sqrt(retraction_prop)~mean_democracy_2008_2021))
+
+plot(fitimp_linear_uni_sqrt$analyses[[1]])
+```
+
+The plots, the F-test and R-squared all showing fitting improvements. Let's check log version.
+
+#### Log method
+
+Since we have zeros in this dataset, we cannot use log. We have two options in this regards:
+
+-   Adding 1: log(y + 1)
+
+-   Adding half the minimum non-0 value: log(y + min(y\[y\>0\])/2)
+
+##### Adding 1 to log
+
+We can use either log1p function or log(y+1). Here, I use log(y+1):
+
+```{r}
+kable(mi.anova(mi.res=new_imp, formula="log(retraction_prop+1)~mean_democracy_2008_2021"))
+```
+
+```{r}
+fitimp_linear_uni_log1 = with(data = new_imp,
+               lm(log(retraction_prop+1)~mean_democracy_2008_2021))
+
+plot(fitimp_linear_uni_log1$analyses[[1]])
+```
+
+The fitness is clearly better than the previous models. Now, let's check other options.
+
+##### Adding half the minimum non-0 value to log
+
+```{r}
+kable(mi.anova(mi.res=new_imp, formula="log(retraction_prop + min(retraction_prop[retraction_prop>0])/2)~mean_democracy_2008_2021"))
+```
+
+```{r}
+fitimp_linear_uni_loghalf = with(data = new_imp,
+               lm(log(retraction_prop + min(retraction_prop[retraction_prop>0])/2)~mean_democracy_2008_2021))
+
+plot(fitimp_linear_uni_loghalf$analyses[[1]])
+```
+
+It seems the first methods had a better fit. Therefore, we proceed with that.
+
+The results of the unadjusted model:
+
+```{r}
+kable(summary(pool(fitimp_linear_uni_log1)))
+```
+
+And the adjusted model:
+
+```{r}
+fitimp_linear_multi_log1 = with(data = new_imp, lm(log(retraction_prop+1)~mean_democracy_2008_2021+ongoing_nonviolent_campaign+GDP_pc_mean_1960_2022+region+industry_share_mean_1960_2022+length_of_last_leader_tenure_2015+muslim_proportion+top_universities_shanghai_2022+plurality))
+
+kable(summary(pool(fitimp_linear_multi_log1)))
+```
+
+Let's check the fitness of the model:
+
+```{r}
+kable(mi.anova(mi.res=new_imp, formula="log(retraction_prop+1)~mean_democracy_2008_2021+ongoing_nonviolent_campaign+GDP_pc_mean_1960_2022+region+industry_share_mean_1960_2022+length_of_last_leader_tenure_2015+muslim_proportion+top_universities_shanghai_2022+plurality"))
+```
+
+And plots:
+
+```{r}
+plot(fitimp_linear_multi_log1$analyses[[1]])
+```
+
+### Zero-truncated dataset
+
+For this one and the next dataset, I only use the log(y+1) method.
+
+```{r}
+fit_truncimp_linear_uni_log1 = with(data = trunc_imp,
+               lm(log(retractions/citabledocuments_1996_2021*10000+1)~mean_democracy_2008_2021))
+
+plot(fit_truncimp_linear_uni_log1$analyses[[1]])
+```
+
+And fitness tests:
+
+```{r}
+kable(mi.anova(mi.res=trunc_imp, formula="log(retractions/citabledocuments_1996_2021*10000+1)~mean_democracy_2008_2021"))
+```
+
+The fitness of model seems satisfactory. Here is the results of the unadjusted model:
+
+```{r}
+kable(summary(pool(fit_truncimp_linear_uni_log1)))
+```
+
+Now, let's perform the full model:
+
+```{r}
+fit_truncimp_linear_multi_log1 = with(data = trunc_imp, lm(log(retractions/citabledocuments_1996_2021*10000+1)~mean_democracy_2008_2021+ongoing_nonviolent_campaign+GDP_pc_mean_1960_2022+region+industry_share_mean_1960_2022+length_of_last_leader_tenure_2015+muslim_proportion+top_universities_shanghai_2022+plurality))
+
+kable(summary(pool(fit_truncimp_linear_multi_log1)))
+```
+
+Let's check the fitness of the model:
+
+```{r}
+kable(mi.anova(mi.res=trunc_imp, formula="log(retractions/citabledocuments_1996_2021*10000+1)~mean_democracy_2008_2021+ongoing_nonviolent_campaign+GDP_pc_mean_1960_2022+region+industry_share_mean_1960_2022+length_of_last_leader_tenure_2015+muslim_proportion+top_universities_shanghai_2022+plurality"))
+```
+
+And plots:
+
+```{r}
+plot(fit_truncimp_linear_multi_log1$analyses[[1]])
+```
+
+### Outlier-removed dataset
+
+```{r}
+fit_nooutimp_linear_uni_log1 = with(data = no_out_imp,
+               lm(log(retractions/citabledocuments_1996_2021*10000+1)~mean_democracy_2008_2021))
+
+plot(fit_nooutimp_linear_uni_log1$analyses[[1]])
+```
+
+And fitness tests:
+
+```{r}
+kable(mi.anova(mi.res=no_out_imp, formula="log(retractions/citabledocuments_1996_2021*10000+1)~mean_democracy_2008_2021"))
+```
+
+The fitness of model seems satisfactory. Here is the unadjusted model:
+
+```{r}
+kable(summary(pool(fit_nooutimp_linear_uni_log1)))
+```
+
+Let's perform the full model:
+
+```{r}
+fit_nooutimp_linear_multi_log1 = with(data = no_out_imp, lm(log(retractions/citabledocuments_1996_2021*10000+1)~mean_democracy_2008_2021+ongoing_nonviolent_campaign+GDP_pc_mean_1960_2022+region+industry_share_mean_1960_2022+length_of_last_leader_tenure_2015+muslim_proportion+top_universities_shanghai_2022+plurality))
+
+kable(summary(pool(fit_nooutimp_linear_multi_log1)))
+```
+
+Let's check the fitness of the model:
+
+```{r}
+kable(mi.anova(mi.res=no_out_imp, formula="log(retractions/citabledocuments_1996_2021*10000+1)~mean_democracy_2008_2021+ongoing_nonviolent_campaign+GDP_pc_mean_1960_2022+region+industry_share_mean_1960_2022+length_of_last_leader_tenure_2015+muslim_proportion+top_universities_shanghai_2022+plurality"))
+```
+
+And plots:
+
+```{r}
+plot(fit_nooutimp_linear_multi_log1$analyses[[1]])
+```
